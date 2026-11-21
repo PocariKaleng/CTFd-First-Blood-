@@ -47,11 +47,26 @@ pip install -r requirements.txt
 python bot.py
 ```
 
-Saat pertama kali dijalankan, bot akan meminta 3 hal: **URL CTFd**, **token admin CTFd**, dan **webhook Discord**. Cara mendapatkannya ada di bawah.
+Saat pertama kali dijalankan, bot menanyakan pengaturan satu per satu. Setiap pertanyaan ada penjelasan dan contohnya:
+
+| Isian | Wajib? | Keterangan |
+|---|---|---|
+| URL CTFd | Wajib | Alamat website CTF, contoh `https://ctf.kampus.ac.id` |
+| Token admin CTFd | Wajib | Lihat [cara ambil token](#cara-ambil-token-admin-ctfd) |
+| Webhook utama | Wajib | Lihat [cara bikin webhook](#cara-bikin-webhook-discord) |
+| Webhook First Blood / Challenge / Hint | Tidak | Isi hanya kalau mau dikirim ke channel berbeda |
+| Interval | Tidak | Seberapa sering bot mengecek CTFd (bawaan 15 detik) |
+| Tampilkan isi hint | Tidak | Bawaan: tidak |
+
+Yang tidak wajib cukup dilewati dengan menekan **Enter**. Semua isian bisa diubah lagi nanti lewat **menu 3**.
+
+<img src="docs/setup.png" alt="Contoh proses pengisian pengaturan" width="620">
 
 **3. Tes, lalu start**
 
-Pilih **5** untuk mengecek koneksi (bot akan mengirim pesan tes ke Discord), lalu pilih **1** untuk mulai. Tekan `Ctrl+C` untuk berhenti.
+Setelah pengisian selesai, bot menawarkan tes koneksi. Jawab **Enter** (ya): bot akan mengecek CTFd dan mengirim pesan tes ke Discord. Kalau ada yang gagal, bot memberi tahu bagian mana yang perlu diperbaiki. Tes ini juga bisa diulang kapan saja lewat **menu 5**.
+
+Kalau semua OK, pilih **1** untuk mulai. Tekan `Ctrl+C` untuk berhenti.
 
 Saat start pertama kali, bot bertanya *"Announce data yang sudah ada?"*. Tekan **Enter** saja supaya challenge dan solve lama tidak dikirim ulang ke Discord.
 

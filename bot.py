@@ -901,58 +901,154 @@ def show_value(cfg, key):
     return str(value) if value else "(kosong)"
 
 
+FIELD_HELP = {
+    "ctfd_url": [
+        "Alamat website CTF kamu (yang dibuka peserta).",
+        "Contoh: https://ctf.kampus.ac.id",
+    ],
+    "token": [
+        "Token dari akun ADMIN CTFd, supaya bot bisa membaca challenge, solve, dan hint.",
+        "Cara ambil: login admin di CTFd -> Settings -> Access Tokens -> Generate.",
+        "Biasanya diawali ctfd_",
+    ],
+    "webhook_main": [
+        "Link webhook channel Discord tempat semua pengumuman dikirim.",
+        "Cara bikin: di Discord buka Edit Channel -> Integrations -> Webhooks,",
+        "klik New Webhook, lalu Copy Webhook URL.",
+        "Bentuknya: https://discord.com/api/webhooks/...",
+    ],
+    "webhook_firstblood": [
+        "Isi kalau First Blood mau dikirim ke channel lain.",
+        "Kalau tidak, cukup tekan Enter (ikut webhook utama).",
+    ],
+    "webhook_challenge": [
+        "Isi kalau pengumuman challenge baru mau dikirim ke channel lain.",
+        "Kalau tidak, cukup tekan Enter (ikut webhook utama).",
+    ],
+    "webhook_hint": [
+        "Isi kalau pengumuman hint baru mau dikirim ke channel lain.",
+        "Kalau tidak, cukup tekan Enter (ikut webhook utama).",
+    ],
+    "interval": [
+        "Seberapa sering bot mengecek CTFd, dalam detik (minimal 5).",
+        "Kalau ragu, tekan Enter saja.",
+    ],
+    "show_hint_content": [
+        "Tulis juga isi hint-nya di pengumuman Discord?",
+        "Hati-hati: hint berbayar jadi bisa dibaca gratis oleh semua orang.",
+    ],
+}
+
+# Halaman CTFd yang sering ikut ter-copy dari address bar browser.
+CTFD_PAGE_RE = re.compile(
+    r"/(api|challenges|scoreboard|login|register|users|teams|notifications|settings|admin)(/.*)?$",
+    re.IGNORECASE,
+)
+
+
+def strip_ctfd_page(url):
+    """https://ctf.x/challenges#a -> (https://ctf.x, '/challenges')."""
+    url = url.split("#")[0].split("?")[0].rstrip("/")
+    m = re.match(r"^(https?://[^/]+)(/.*)?$", url, re.IGNORECASE)
+    path = m.group(2) or ""
+    page = CTFD_PAGE_RE.search(path)
+    if not page:
+        return url, None
+    return (m.group(1) + path[:page.start()]).rstrip("/"), path[page.start():]
+
+
 def validate(key, raw):
-    """Return (nilai, pesan_error)."""
+    """Return (nilai, pesan_error, catatan)."""
+    raw = raw.strip().strip("\"'").strip()
     if key == "ctfd_url":
         url = clean_url(raw)
-        return (url, None) if url else (None, "URL harus diawali http:// atau https://")
+        if not url:
+            return None, "Alamat harus diawali http:// atau https://, contoh: https://ctf.kampus.ac.id", None
+        base, removed = strip_ctfd_page(url)
+        note = f"Bagian '{removed}' dibuang, yang dipakai alamat utamanya: {base}" if removed else None
+        return base, None, note
+    if key == "token":
+        token = re.sub(r"^(token|bearer)\s+", "", raw, flags=re.IGNORECASE)
+        if re.search(r"\s", token):
+            return None, "Token tidak boleh ada spasi. Coba salin ulang tokennya.", None
+        return token, None, None
     if key.startswith("webhook_"):
         if is_webhook(raw):
-            return raw.strip(), None
-        return None, "Harus URL Discord webhook (https://discord.com/api/webhooks/...)"
+            return raw, None, None
+        return None, "Itu bukan link webhook Discord. Bentuknya: https://discord.com/api/webhooks/angka/kode", None
     if key == "interval":
         number = parse_interval(raw)
-        return (number, None) if number else (None, "Interval harus angka bulat >= 5")
+        return (number, None, None) if number else (None, "Isi angka saja, minimal 5. Contoh: 15", None)
     if key == "show_hint_content":
         answer = parse_yes_no(raw)
-        return (answer, None) if answer is not None else (None, "Jawab y atau n")
-    return raw.strip(), None
+        return (answer, None, None) if answer is not None else (None, "Ketik y (ya) atau n (tidak).", None)
+    return raw, None, None
 
 
-def edit_field(cfg, key):
-    """Edit satu field di cfg. Return True kalau nilainya diubah."""
-    optional = key in OPTIONAL_WEBHOOKS
-    help_text = "Enter = tidak diubah" + (", '-' = kosongkan" if optional else "")
-    while True:
-        print(f"\n{bold(FIELD_LABEL[key])}")
+def enter_hint(cfg, key):
+    """Penjelasan apa yang terjadi kalau user langsung tekan Enter."""
+    value = cfg.get(key)
+    if key in OPTIONAL_WEBHOOKS:
+        if value:
+            return "Enter = tetap pakai yang sekarang. Ketik - untuk menghapus (balik ikut webhook utama)."
+        return "Enter = lewati (ikut webhook utama)."
+    if key == "interval":
+        return f"Enter = tetap {value} detik."
+    if key == "show_hint_content":
+        return f"Ketik y (ya) atau n (tidak). Enter = tetap {'ya' if value else 'tidak'}."
+    if value:
+        return "Enter = tetap pakai yang sekarang, atau ketik yang baru."
+    return "Ketik atau paste, lalu tekan Enter."
+
+
+def edit_field(cfg, key, step=None):
+    """Tanyakan satu isian. Return True kalau nilainya diubah."""
+    label = FIELD_LABEL[key].split(" (")[0]
+    prefix = f"[{step}/{len(FIELDS)}] " if step else ""
+    tag = "wajib" if key in REQUIRED else "boleh dilewati"
+    print(f"\n{bold(prefix + label)}  {dim('(' + tag + ')')}")
+    for line in FIELD_HELP[key]:
+        print(f"  {line}")
+    if cfg.get(key) or key in ("interval", "show_hint_content"):
         print(f"  Sekarang: {show_value(cfg, key)}")
-        raw = input(f"  Nilai baru ({help_text}): ").strip()
+    print(dim(f"  {enter_hint(cfg, key)}"))
+    while True:
+        raw = input("  > ").strip()
         if not raw:
             if key in REQUIRED and not cfg.get(key):
-                print(red("  Wajib diisi."))
+                print(red("  Bagian ini wajib diisi."))
                 continue
             return False
-        if optional and raw == "-":
+        if raw == "-" and key in OPTIONAL_WEBHOOKS:
+            if not cfg.get(key):
+                return False
             cfg[key] = ""
+            print(dim("  Dihapus, sekarang ikut webhook utama."))
             return True
-        value, error = validate(key, raw)
+        value, error, note = validate(key, raw)
         if error:
             print(red(f"  {error}"))
             continue
+        if note:
+            print(yellow(f"  {note}"))
         cfg[key] = value
         return True
 
 
 def wizard(cfg):
-    print(bold("\nSetup konfigurasi"))
-    print("Isi satu per satu. Enter = pakai nilai sekarang.")
+    print(bold("\nSetup bot"))
+    print("Yang wajib diisi cuma 3: URL CTFd, token admin, dan webhook Discord.")
+    print("Sisanya boleh dilewati dengan menekan Enter.")
+    print(dim("Semua isian bisa diubah lagi nanti lewat menu 3. Ctrl+C untuk batal."))
     draft = copy.deepcopy(cfg)  # kalau dibatalkan di tengah, config lama tetap utuh
-    for key, _ in FIELDS:
-        edit_field(draft, key)
+    for step, (key, _) in enumerate(FIELDS, 1):
+        edit_field(draft, key, step)
     cfg.clear()
     cfg.update(draft)
     save_config(cfg)
-    print(green(f"\nKonfigurasi disimpan ke {CONFIG_FILE}"))
+    print(green(f"\nSelesai! Pengaturan disimpan ke {CONFIG_FILE.name} (satu folder dengan bot.py)."))
+    if ask_yes_no("Tes koneksi ke CTFd dan Discord sekarang? (Y/n): ", default=True):
+        test_connection(cfg)
 
 
 def setup_menu(cfg):
@@ -995,6 +1091,7 @@ def test_connection(cfg):
         for problem in problems:
             print(f"  - {problem}")
         return
+    all_ok = True
     print(bold("\nTes CTFd"))
     api = CTFd(clean_url(cfg["ctfd_url"]), cfg["token"])
     try:
@@ -1002,8 +1099,14 @@ def test_connection(cfg):
         print(green(f"  OK     token diterima, {len(challenges)} challenge visible"))
         hints = api.hints()
         print(green(f"  OK     akses admin, {len(hints)} hint"))
-    except (AuthError, CTFdError) as e:
+    except AuthError as e:
+        all_ok = False
         print(red(f"  GAGAL  {e}"))
+        print(yellow("         Cek token admin lewat menu 3 -> 2."))
+    except CTFdError as e:
+        all_ok = False
+        print(red(f"  GAGAL  {e}"))
+        print(yellow("         Cek URL CTFd lewat menu 3 -> 1, dan pastikan website CTFd bisa dibuka."))
 
     print(bold("Tes Discord"))
     targets = {}
@@ -1023,9 +1126,13 @@ def test_connection(cfg):
             "timestamp": now_iso(),
         }
         if send_webhook(url, {"embeds": [embed]}):
-            print(green(f"  OK     webhook {names} ({mask(url)})"))
+            print(green(f"  OK     webhook {names} ({mask(url)}), cek pesan tes di Discord"))
         else:
+            all_ok = False
             print(red(f"  GAGAL  webhook {names} ({mask(url)})"))
+            print(yellow("         Cek link webhook lewat menu 3, atau buat webhook baru di Discord."))
+    if all_ok:
+        print(green("\nSemua beres. Pilih 1 di menu utama untuk start bot."))
 
 
 def toggle_menu(cfg):
@@ -1126,11 +1233,14 @@ def set_manual_freeze(cfg):
     if get_tz(tz_name) is None:
         print(red(f"Timezone '{tz_name}' di config.json tidak dikenal. Pakai mis. Asia/Jakarta atau +07:00."))
         return
+    tz_label = TZ_FIXED[tz_name][1] if tz_name in TZ_FIXED else tz_name
     print(bold("\nSet freeze time manual"))
+    print("  Isi kalau waktu freeze di CTFd kosong atau mau diganti. Nilai ini menang dari CTFd.")
+    print(f"  Format: tahun-bulan-tanggal jam:menit ({tz_label}). Contoh: 2026-11-21 20:00")
     print(f"  Sekarang: {cfg.get('freeze_manual') or '(tidak diset)'}")
-    print(f"  Format YYYY-MM-DD HH:MM, zona waktu {tz_name}. Nilai manual menang dari nilai CTFd.")
+    print(dim("  Enter = tidak diubah."))
     while True:
-        raw = input("  Freeze time (Enter = tidak diubah): ").strip()
+        raw = input("  > ").strip()
         if not raw:
             return
         try:
@@ -1271,7 +1381,7 @@ MAIN_MENU = """
 def menu_loop():
     cfg = load_config()
     if cfg is None:
-        print("config.json belum ada. Setup dulu ya.")
+        print("Halo! Pengaturan bot belum ada, isi dulu ya.")
         cfg = default_config()
         wizard(cfg)
 
